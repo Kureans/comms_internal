@@ -6,9 +6,7 @@
 #define MASK_LSB 0xff
 
 #define BUFFER_SIZE 50
-
-#define HIGH_FRAG_DELAY 50
-#define NORMAL_DELAY 2000
+#define TIMEOUT 5000
 
 //Mock IMU Data Structure
 typedef struct IMUData {
@@ -98,174 +96,77 @@ void setup() {
     } 
   } 
 
-//  //Creates the mutex object
-//  buffer_mutex = xSemaphoreCreateMutex();
-//
-//  //Creates and starts the threads
-//  xTaskCreate(ReceiveAndProcessData, "Receive", 128, NULL, 2, NULL);
-//  xTaskCreate(SendDataAndReceiveACK, "Send", 128, NULL, 2, NULL);
+//Creates the mutex object
+ buffer_mutex = xSemaphoreCreateMutex();
+
+ //Creates and starts the threads
+ xTaskCreate(ReceiveAndProcessData, "Receive", 128, NULL, 2, NULL);
+ xTaskCreate(SendDataAndReceiveACK, "Send", 128, NULL, 2, NULL);
+}
+
+//Receives and process data. For now, just pushes mock data into buffer.
+void ReceiveAndProcessData(void *pvParameters) {
+ 
+ (void) pvParameters;
+ 
+ for (;;) {
+   if (xSemaphoreTake(buffer_mutex, portMAX_DELAY) == pdTRUE) {
+     
+     //If buffer is not full, push data into buffer
+     if (!buffer.isFull()) {
+       
+       //pseudo_randomly pushes 2 different mock data into buffer
+       if (seq_no == '0') {
+         buffer.push(imu_data1);
+       } else {
+         buffer.push(imu_data2);
+       }
+     }
+     xSemaphoreGive(buffer_mutex);
+   }
+ }
 }
 
 
-// For high speed fragmentation test
-void loop() {
+void SendDataAndReceiveACK(void *pvParameters) {
 
-    delay(HIGH_FRAG_DELAY);
-    
-    if (seq_no == '0') {
-      assemble_and_send_data(imu_data1);
-    } else {
-      assemble_and_send_data(imu_data2);
-    }
-    
+ (void) pvParameters;
+ 
+ for (;;) {
+   
+   //Sends data from the head of the buffer
+   assemble_and_send_data(buffer.first());
 
-    //Initialises timer to check for packet timeout
-    unsigned long curr_time = millis();
-    
-    while (!has_ack && ((millis() - curr_time) < 5000)) {
-      if (Serial.available()) {
+   //Initialises timer to check for packet timeout
+   TickType_t curr_time = xTaskGetTickCount();
+   
+   while (!has_ack && ((xTaskGetTickCount() - curr_time) < TIMEOUT)) {
+     if (Serial.available()) {
 
-        //Should read either 'H' for handshake or 'A' for normal ACK
-        char hdr = Serial.read();
+       //Should read either 'H' for handshake or 'A' for normal ACK
+       char hdr = Serial.read();
 
-        //Successfully received ACK, and flips seq_no for next packet
-        if (hdr == 'A') {
-          has_ack = true;
-          seq_no = (seq_no == '0') ? '1' : '0';
-        }
+       //Successfully received ACK, and flips seq_no for next packet
+       if (hdr == 'A') {
+         has_ack = true;
+         seq_no = (seq_no == '0') ? '1' : '0';
+       }
 
-        //In the event that connection loss occured and relay_node re-inits handshake
-        if (hdr == 'H') {
-          Serial.print('A');
-        }
-        
-      }
-    }
+       //In the event that connection loss occured and relay_node re-inits handshake
+       if (hdr == 'H') {
+         Serial.print('A');
+       }
+       
+     }
+   }
 
-    //Reinits ACK to false for next cycle
-    has_ack = false;
-  
+   //Removes sent data from head of buffer
+   if (has_ack && xSemaphoreTake(buffer_mutex, portMAX_DELAY) == pdTRUE) {
+     buffer.shift();
+     xSemaphoreGive(buffer_mutex);
+   }
+
+   //Reinits ACK to false for next cycle
+   has_ack = false;
+ }
 }
-
-//
-////Receives and process data. For now, just pushes mock data into buffer.
-//void ReceiveAndProcessData(void *pvParameters) {
-//  
-//  (void) pvParameters;
-//  
-//  for (;;) {
-//    if (xSemaphoreTake(buffer_mutex, portMAX_DELAY) == pdTRUE) {
-//      
-//      //If buffer is not full, push data into buffer
-//      if (!buffer.isFull()) {
-//        
-//        //pseudo_randomly pushes 2 different mock data into buffer
-//        if (seq_no == '0') {
-//          buffer.push(imu_data1);
-//        } else {
-//          buffer.push(imu_data2);
-//        }
-//      }
-//      xSemaphoreGive(buffer_mutex);
-//    }
-//  }
-//}
-//
-//
-//void SendDataAndReceiveACK(void *pvParameters) {
-//  (void) pvParameters;
-//  
-//  for (;;) {
-//    
-//    //Sends data from the head of the buffer
-//    assemble_and_send_data(buffer.first());
-//
-//    //Initialises timer to check for packet timeout
-//    TickType_t curr_time = xTaskGetTickCount();
-//    
-//    while (!has_ack && ((xTaskGetTickCount() - curr_time) < 5000)) {
-//      if (Serial.available()) {
-//
-//        //Should read either 'H' for handshake or 'A' for normal ACK
-//        char hdr = Serial.read();
-//
-//        //Successfully received ACK, and flips seq_no for next packet
-//        if (hdr == 'A') {
-//          has_ack = true;
-//          seq_no = (seq_no == '0') ? '1' : '0';
-//        }
-//
-//        //In the event that connection loss occured and relay_node re-inits handshake
-//        if (hdr == 'H') {
-//          Serial.print('A');
-//        }
-//        
-//      }
-//    }
-//
-//    //Removes sent data from head of buffer
-//    if (has_ack && xSemaphoreTake(buffer_mutex, portMAX_DELAY) == pdTRUE) {
-//      buffer.shift();
-//      xSemaphoreGive(buffer_mutex);
-//    }
-//
-//    //Reinits ACK to false for next cycle
-//    has_ack = false;
-//  }
-//
-//  
-//}
-
-//for (;;) {
-//   
-//    while (has_ack == 0) {
-//      send_data(buffer.first());
-//      TickType_t curr_time = xTaskGetTickCount();
-//      while (!has_ack && ((xTaskGetTickCount() - curr_time) < 5000)) {
-//        if (Serial.available()) {
-//          char hdr = Serial.read();
-//          if (hdr == 'A') {
-//            has_ack = 1;
-//            seq_no = (seq_no == '0') ? '1' : '0';
-//            if (xSemaphoreTake(buffer_mutex, portMAX_DELAY) == pdTRUE) {
-//              buffer.shift();
-//              xSemaphoreGive(buffer_mutex);
-//            }
-//            
-//          }
-//          if (hdr == 'H') {
-//            Serial.print('A');
-//          }
-//        }
-//      }
-//    }
-//
-//    has_ack = 0;
-//  }
-//  
-//void loop() {
-//  
-//    delay(2000);
-//    receive_data(seq_no);
-//    while (has_ack == 0) {
-//      send_data(buffer.first());
-//      unsigned long curr_time = millis();
-//      while (!has_ack && ((millis() - curr_time) < 5000)) {
-//        if (Serial.available()) {
-//          char hdr = Serial.read();
-//          if (hdr == 'A') {
-//            has_ack = 1;
-//            seq_no = (seq_no == '0') ? '1' : '0';
-//            buffer.shift();
-//          }
-//          if (hdr == 'H') {
-//            Serial.print('A');
-//          }
-//        }
-//      }
-//  
-//    }
-//    
-//    has_ack = 0;
-//  
-//}

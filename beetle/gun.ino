@@ -1,5 +1,4 @@
-#define HIGH_FRAG_DELAY 50
-#define NORMAL_DELAY 2000
+#define TIMEOUT 5000
 
 volatile int gun_fire_count;
 bool has_handshake;
@@ -8,7 +7,9 @@ char seq_no;
 String padding = "111111111111"; //12 bytes padding
 
 void trigger_ISR() {
+  if (gun_fire_count < 3) {
     gun_fire_count++;
+  }
 }
 
 //Assembles the 15 byte packet and sends it out over serial
@@ -46,39 +47,36 @@ void setup() {
 
 void loop() {
 
-    delay(HIGH_FRAG_DELAY);
-//    gun_fire_count++;
-//    if (gun_fire_count == 0) {
-//      continue;
-//    }
-    //Sends data from the head of the buffer
+  //Sends data from the head of the buffer
+  if (gun_fire_count > 0) {
     assemble_and_send_data();
+  }
 
-    //Initialises timer to check for packet timeout
-    unsigned long curr_time = millis();
-    
-    while (!has_ack && ((millis() - curr_time) < 5000)) {
-      if (Serial.available()) {
-
-        //Should read either 'H' for handshake or 'A' for normal ACK
-        char hdr = Serial.read();
-
-        //Successfully received ACK, and flips seq_no for next packet
-        if (hdr == 'A') {
-          has_ack = true;
-          seq_no = (seq_no == '0') ? '1' : '0';
-//          gun_fire_count--;
-        }
-
-        //In the event that connection loss occured and relay_node re-inits handshake
-        if (hdr == 'H') {
-          Serial.print('A');
-        }
-        
-      }
-    }
-
-    //Reinits ACK to false for next cycle
-    has_ack = false;
+  //Initialises timer to check for packet timeout
+  unsigned long curr_time = millis();
   
+  while (!has_ack && ((millis() - curr_time) < TIMEOUT)) {
+    if (Serial.available()) {
+      
+      //Should read either 'H' for handshake or 'A' for normal ACK
+      char hdr = Serial.read();
+
+      //Successfully received ACK, and flips seq_no for next packet
+      if (hdr == 'A') {
+        has_ack = true;
+        seq_no = (seq_no == '0') ? '1' : '0';
+        gun_fire_count--;
+      }
+
+      //In the event that connection loss occured and relay_node re-inits handshake
+      if (hdr == 'H') {
+        Serial.print('A');
+      }
+      
+    }
+  }
+
+  //Reinits ACK to false for next cycle
+  has_ack = false;
+
 }
