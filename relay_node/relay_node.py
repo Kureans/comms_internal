@@ -6,6 +6,7 @@ import time
 ADDRESS_GUN = "d0:39:72:bf:c8:87"
 ADDRESS_VEST = "d0:39:72:bf:c6:51"
 ADDRESS_GLOVE = "d0:39:72:bf:c6:47"
+ADDRESS_BACKUP = "50:f1:4a:da:cc:eb"
 
 HEADER_ACK = 65
 HEADER_GUN = 71
@@ -14,12 +15,13 @@ HEADER_VEST = 86
 
 PACKET_SIZE = 15
 
-address_list = [ADDRESS_VEST, ADDRESS_GLOVE, ADDRESS_GUN]
-name_list = ["Vest1", "Glove1", "Gun1"]
-header_list = [HEADER_VEST, HEADER_GLOVE, HEADER_GUN]
+# address_list = [ADDRESS_VEST, ADDRESS_GLOVE, ADDRESS_GUN]
+# name_list = ["Vest1", "Glove1", "Gun1"]
+# header_list = [HEADER_VEST, HEADER_GLOVE, HEADER_GUN]
 
-# address_list = [ADDRESS_GLOVE]
-# name_list = ["Beetle Glove"]
+address_list = [ADDRESS_GLOVE]
+name_list = ["Beetle Glove"]
+header_list = [HEADER_GLOVE]
 
 SERIAL_UUID = "0000dfb1-0000-1000-8000-00805f9b34fb"
 RETRY_COUNT = 8
@@ -164,6 +166,20 @@ def init_handshake_beetle_list():
             if not beetle.is_connected:
                 beetle.connect_with_retries(RETRY_COUNT)
 
+# Helper function to unpack IMU sensor data
+def unpack_glove_data_into_dict(glove_data):
+    glove_dict = {
+        "roll": bytes_to_uint16_t(glove_data[0:2]),
+        "pitch": bytes_to_uint16_t(glove_data[2:4]),
+        "yaw": bytes_to_uint16_t(glove_data[4:6]),
+        "x": bytes_to_uint16_t(glove_data[6:8]),
+        "y": bytes_to_uint16_t(glove_data[8:10]),
+        "z": bytes_to_uint16_t(glove_data[10:12]),
+    }
+    return glove_dict
+
+def bytes_to_uint16_t(bytes):
+    return (bytes[0] << 8) + bytes[1]
 
 # Thread Worker that relays valid data to Ultra96
 def serial_handler(beetle):
@@ -171,36 +187,28 @@ def serial_handler(beetle):
     global frag_packet_count
     global drop_packet_count
     global start_time
+    print("Serial Thread")
     while True:
         try:
             if beetle.peripheral.waitForNotifications(5):
-                # print(f" {beetle.name} Buffer: ", beetle.delegate.data_buffer)
+                print(f" {beetle.name} Buffer: ", beetle.delegate.data_buffer)
                 # print("Buffer Len: ", len(beetle.delegate.data_buffer))
-
-        # if data is detected to be corrupted, it is set to empty byte obj
                 if len(beetle.delegate.data_buffer) < PACKET_SIZE:
-                    # print("Appending fragmented data into buffer...")
-                    frag_packet_mutex.acquire()
-                    frag_packet_count += 1
-                    data_count_mutex.release()
+                    print("Appending fragmented data into buffer...")
                 else:
                     # For now, mock up relaying to ultra96 by printing data
-                    # print("Valid data! Relaying to Ultra96...")
-                    # print("Data Sent: ", beetle.delegate.data_buffer)
-
+                    print("Valid data! Relaying to Ultra96...")
                     if beetle.delegate.is_valid_data:
-                        data_count_mutex.acquire()
-                        data_count += 1
-                        data_count_mutex.release()
+                        if beetle.header == HEADER_GLOVE:
+                            glove_data = beetle.delegate.data_buffer[2:14]
+                            data_obj = unpack_glove_data_into_dict(glove_data)
+                            print(data_obj)
                         beetle.serial_char.write(b'A')
-                        
+                    
                     else:
-                    # print("Invalid Data: Packet dropped!")
-                        drop_packet_mutex.acquire()
-                        drop_packet_count += 1
-                        drop_packet_mutex.release()    
+                        print("Invalid Data: Packet dropped!")
 
-                    beetle.delegate.data_buffer = beetle.delegate.data_buffer[PACKET_SIZE-1:]
+                    beetle.delegate.data_buffer = beetle.delegate.data_buffer[PACKET_SIZE:]
                     beetle.delegate.checksum = 0        
                 
                     
@@ -229,12 +237,12 @@ if __name__ == "__main__":
     thread_vest = threading.Thread(
         target=serial_handler, args=(beetle_list[0],))
     thread_vest.start()
-    thread_glove = threading.Thread(
-        target=serial_handler, args=(beetle_list[1],))
-    thread_glove.start()
-    thread_gun = threading.Thread(
-        target=serial_handler, args=(beetle_list[2],))
-    thread_gun.start()
+    # thread_glove = threading.Thread(
+    #     target=serial_handler, args=(beetle_list[1],))
+    # thread_glove.start()
+    # thread_gun = threading.Thread(
+    #     target=serial_handler, args=(beetle_list[2],))
+    # thread_gun.start()
 
 
     while True:

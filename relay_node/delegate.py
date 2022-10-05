@@ -29,7 +29,8 @@ class Delegate(btle.DefaultDelegate):
         self.hand_ack = True
     
     def __handle_data(self, data):
-
+        for b in data:
+            print(b, end=" ")
         #Non-fragmented Data
         if not self.is_fragmented and len(data) == PACKET_SIZE:
             self.checksum = 0
